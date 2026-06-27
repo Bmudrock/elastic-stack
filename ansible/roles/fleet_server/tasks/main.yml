@@ -24,6 +24,41 @@
   changed_when: false
   no_log: true
 
+# Fleet must be initialised before any Fleet API calls. This is idempotent —
+# Kibana returns 200 whether Fleet is being set up for the first time or was
+# already set up. It also triggers download of the pre-configured packages
+# (apm, elastic_agent, system) declared in kibana.yml.
+- name: Initialise Fleet via Kibana API
+  when: fleet_agent_status.rc != 0
+  ansible.builtin.uri:
+    url: "https://localhost:{{ kibana_port }}/api/fleet/setup"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password_raw.stdout | trim }}"
+    validate_certs: false
+    status_code: [200, 201]
+    headers:
+      kbn-xsrf: "true"
+  register: fleet_setup
+  no_log: true
+
+# Packages declared in kibana.yml are installed asynchronously after Fleet
+# setup. Poll until the APM package is available before creating policies.
+- name: Wait for APM package to be available in Fleet
+  when: fleet_agent_status.rc != 0
+  ansible.builtin.uri:
+    url: "https://localhost:{{ kibana_port }}/api/fleet/epm/packages/apm"
+    method: GET
+    user: elastic
+    password: "{{ elastic_password_raw.stdout | trim }}"
+    validate_certs: false
+    status_code: 200
+  register: apm_package_info
+  until: apm_package_info.status == 200
+  retries: 30
+  delay: 10
+  no_log: true
+
 - name: Create Fleet Server service token via Elasticsearch API
   when: fleet_agent_status.rc != 0
   ansible.builtin.uri:
@@ -49,6 +84,13 @@
   no_log: true
   changed_when: true
 
+# --fleet-server-es-ca: CA that signed the Elasticsearch TLS certificate,
+#   so Fleet Server can verify the ES connection.
+# --certificate-authorities: CA that signed the Fleet Server certificate,
+#   so enrolled agents can verify the Fleet Server connection.
+# --fleet-server-host: bind on all interfaces so agents can reach Fleet.
+# --fleet-server-policy is intentionally omitted — Fleet creates and uses
+#   the default Fleet Server policy on first bootstrap.
 - name: Bootstrap Fleet Server
   when: fleet_agent_status.rc != 0
   ansible.builtin.command:
@@ -57,10 +99,11 @@
       --non-interactive
       --fleet-server-es=https://{{ hostvars[groups['elasticsearch'][0]]['fqdn'] }}:9200
       --fleet-server-service-token={{ fleet_token_response.json.token.value }}
-      --fleet-server-policy=fleet-server-policy
+      --fleet-server-es-ca={{ elastic_tls_dir }}/ca_chain.pem
       --certificate-authorities={{ elastic_tls_dir }}/ca_chain.pem
       --fleet-server-cert={{ elastic_tls_dir }}/cert.pem
       --fleet-server-cert-key={{ elastic_tls_dir }}/key.pem
+      --fleet-server-host=0.0.0.0
       --fleet-server-port={{ fleet_server_port }}
       --url=https://fleet.{{ domain_name }}:{{ fleet_server_port }}
   no_log: true
@@ -79,7 +122,7 @@
   retries: 20
   delay: 15
 
-- name: Create APM integration policy via Kibana API
+- name: Create APM agent policy via Kibana API
   when: fleet_agent_status.rc != 0
   ansible.builtin.uri:
     url: "https://localhost:{{ kibana_port }}/api/fleet/agent_policies"
@@ -110,6 +153,9 @@
       --region "{{ aws_region }}"
   changed_when: true
 
+# vars format follows Fleet 8.x package_policies API: each var is a key whose
+# value is an object with a "value" field. The APM package version is read from
+# the Fleet package registry so we always use the installed version.
 - name: Add APM integration to policy
   when: fleet_agent_status.rc != 0
   ansible.builtin.uri:
@@ -121,25 +167,28 @@
     body_format: json
     body:
       name: "apm-1"
+      namespace: default
       policy_id: "{{ apm_policy_response.json.item.id }}"
       package:
         name: apm
+        version: "{{ apm_package_info.json.item.version }}"
       inputs:
         - type: apm
           enabled: true
           vars:
-            - name: host
-              value: "0.0.0.0:8200"
-            - name: url
-              value: "https://apm.{{ domain_name }}:8200"
-            - name: tls_enabled
+            host:
+              value: "0.0.0.0:{{ apm_server_port }}"
+            url:
+              value: "https://apm.{{ domain_name }}:{{ apm_server_port }}"
+            tls_enabled:
               value: true
-            - name: tls_certificate
+            tls_certificate:
               value: "{{ elastic_tls_dir }}/cert.pem"
-            - name: tls_key
+            tls_key:
               value: "{{ elastic_tls_dir }}/key.pem"
-            - name: tls_certificate_authorities
-              value: "{{ elastic_tls_dir }}/ca_chain.pem"
+            tls_certificate_authorities:
+              value:
+                - "{{ elastic_tls_dir }}/ca_chain.pem"
     status_code: [200, 201]
     headers:
       kbn-xsrf: "true"

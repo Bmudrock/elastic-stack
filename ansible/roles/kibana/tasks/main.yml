@@ -33,6 +33,16 @@
   changed_when: false
   no_log: true
 
+- name: Check if Kibana keystore exists
+  ansible.builtin.stat:
+    path: /etc/kibana/kibana.keystore
+  register: kibana_keystore_stat
+
+- name: Create Kibana keystore
+  ansible.builtin.command:
+    cmd: /usr/share/kibana/bin/kibana-keystore create
+  when: not kibana_keystore_stat.stat.exists
+
 - name: Set kibana_system password in Kibana keystore
   ansible.builtin.shell:
     cmd: >

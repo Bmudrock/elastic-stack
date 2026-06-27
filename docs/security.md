@@ -28,7 +28,7 @@ For each VM role (`elasticsearch`, `kibana`, `apm`):
 3. The CSR is signed by the Private CA via `aws_acmpca_certificate` (validity: 825 days).
 4. The private key is stored in SSM Parameter Store as a `SecureString` (KMS-encrypted) at `/elastic/<role>/tls/key`.
 5. The signed certificate is stored at `/elastic/<role>/tls/cert`.
-6. The CA certificate chain is stored once at `/elastic/common/tls/ca_chain` and shared across all roles.
+6. The CA certificate chain is stored once at `/elastic/common/tls/ca_chain` and shared across all roles. For a root CA, `certificate_chain` is empty — Terraform falls back to `certificate` (the CA cert itself). For a subordinate CA, `certificate_chain` contains the full chain up to the root.
 
 ### Certificate Delivery (Ansible)
 

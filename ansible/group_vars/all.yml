@@ -2,8 +2,9 @@
 elastic_tls_dir: /etc/elastic/tls
 elastic_ssm_prefix: /elastic
 
-# Fleet Server port — referenced by both the kibana and apm_server roles
+# Ports referenced across multiple roles
 fleet_server_port: 8220
+apm_server_port: 8200
 
 # Elastic APT repository — uses 'stable' distribution, not Ubuntu codename
 elastic_apt_key_url: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"

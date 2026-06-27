@@ -66,10 +66,14 @@ resource "aws_ssm_parameter" "tls_cert" {
   description = "TLS certificate for elastic-${each.key}"
 }
 
-# CA chain is shared across all nodes — stored once
+# CA chain is shared across all nodes — stored once.
+# For a root CA, certificate_chain is empty; fall back to certificate (the CA
+# cert itself). For a subordinate CA, certificate_chain contains the full chain
+# up to the root, which is what Elastic Stack needs for TLS verification.
 resource "aws_ssm_parameter" "tls_ca_chain" {
-  name        = "/elastic/common/tls/ca_chain"
-  type        = "String"
-  value       = data.aws_acmpca_certificate_authority.this.certificate_chain
+  name  = "/elastic/common/tls/ca_chain"
+  type  = "String"
+  value = length(trimspace(data.aws_acmpca_certificate_authority.this.certificate_chain)) > 0 ? data.aws_acmpca_certificate_authority.this.certificate_chain : data.aws_acmpca_certificate_authority.this.certificate
+
   description = "Private CA certificate chain for Elastic Stack TLS verification"
 }

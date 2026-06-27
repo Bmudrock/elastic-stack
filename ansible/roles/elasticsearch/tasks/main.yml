@@ -95,7 +95,7 @@
 
 - name: Reset elastic superuser password
   ansible.builtin.command:
-    cmd: /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b
+    cmd: /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -a -b -s
   register: elastic_password_result
   no_log: true
   changed_when: true
@@ -114,7 +114,7 @@
 
 - name: Reset kibana_system user password
   ansible.builtin.command:
-    cmd: /usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system -s -b
+    cmd: /usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system -a -b -s
   register: kibana_system_password_result
   no_log: true
   changed_when: true

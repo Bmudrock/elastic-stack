@@ -16,11 +16,13 @@ xpack.security.http.ssl:
   enabled: true
   certificate: {{ elastic_tls_dir }}/cert.pem
   key: {{ elastic_tls_dir }}/key.pem
-  certificate_authorities: {{ elastic_tls_dir }}/ca_chain.pem
+  certificate_authorities:
+    - {{ elastic_tls_dir }}/ca_chain.pem
 
 xpack.security.transport.ssl:
   enabled: true
   verification_mode: certificate
   certificate: {{ elastic_tls_dir }}/cert.pem
   key: {{ elastic_tls_dir }}/key.pem
-  certificate_authorities: {{ elastic_tls_dir }}/ca_chain.pem
+  certificate_authorities:
+    - {{ elastic_tls_dir }}/ca_chain.pem
