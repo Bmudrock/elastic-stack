@@ -1,0 +1,6 @@
+---
+# Full-stack deployment. ES must be healthy before Kibana runs;
+# Kibana + Fleet must be healthy before APM enrolls.
+- import_playbook: elasticsearch.yml
+- import_playbook: kibana.yml
+- import_playbook: apm_server.yml

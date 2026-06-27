@@ -1,0 +1,22 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# terraform.tfvars is git-ignored and must never be committed.
+
+vpc_id                 = "vpc-xxxxxxxxxxxxxxxxx"
+subnet_id              = "subnet-xxxxxxxxxxxxxxxxx"
+aws_region             = "REGION"
+private_hosted_zone_id = "ZXXXXXXXXXXXXXXXXXXXXX"
+domain_name            = "your-internal-domain"
+private_ca_arn         = "arn:aws:acm-pca:REGION:ACCOUNT_ID:certificate-authority/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+internal_cidr          = "CIDR/PREFIX"
+ami_id                 = "ami-xxxxxxxxxxxxxxxxx"
+
+# Optional overrides (uncomment to change from defaults)
+# elasticsearch_instance_type = "r6i.2xlarge"
+# kibana_instance_type        = "m6i.xlarge"
+# apm_instance_type           = "m6i.large"
+# elasticsearch_ebs_size_gb   = 1000
+# key_name                    = "your-key-pair-name"
+# tags = {
+#   Environment = "production"
+#   Project     = "elastic-stack"
+# }

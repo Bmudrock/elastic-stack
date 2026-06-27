@@ -1,0 +1,65 @@
+---
+- name: Install Elastic Agent
+  ansible.builtin.apt:
+    name: elastic-agent
+    state: present
+
+- name: Grant elastic-agent group read access to TLS directory
+  ansible.builtin.file:
+    path: "{{ elastic_tls_dir }}"
+    group: elastic-agent
+    mode: '0750'
+
+- name: Grant elastic-agent group read access to TLS files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    group: elastic-agent
+    mode: '0640'
+  loop:
+    - "{{ elastic_tls_dir }}/key.pem"
+    - "{{ elastic_tls_dir }}/cert.pem"
+    - "{{ elastic_tls_dir }}/ca_chain.pem"
+
+- name: Check whether Elastic Agent is already enrolled
+  ansible.builtin.command:
+    cmd: elastic-agent status
+  register: apm_agent_status
+  failed_when: false
+  changed_when: false
+
+- name: Fetch APM enrollment token from SSM
+  when: apm_agent_status.rc != 0
+  ansible.builtin.shell:
+    cmd: >
+      aws ssm get-parameter
+      --name "{{ elastic_ssm_prefix }}/fleet/apm_enrollment_token"
+      --with-decryption
+      --region "{{ aws_region }}"
+      --query 'Parameter.Value'
+      --output text
+  register: apm_enrollment_token_raw
+  changed_when: false
+  no_log: true
+
+- name: Enroll Elastic Agent with Fleet Server (APM policy)
+  when: apm_agent_status.rc != 0
+  ansible.builtin.command:
+    cmd: >
+      elastic-agent install
+      --non-interactive
+      --url=https://fleet.{{ domain_name }}:{{ fleet_server_port }}
+      --enrollment-token={{ apm_enrollment_token_raw.stdout | trim }}
+      --certificate-authorities={{ elastic_tls_dir }}/ca_chain.pem
+  no_log: true
+  changed_when: true
+  register: agent_enroll
+  failed_when: agent_enroll.rc != 0
+
+- name: Wait for Elastic Agent to be healthy
+  ansible.builtin.command:
+    cmd: elastic-agent status
+  register: agent_status
+  until: "'HEALTHY' in agent_status.stdout"
+  retries: 20
+  delay: 15
+  changed_when: false

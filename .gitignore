@@ -1,0 +1,41 @@
+# Terraform
+*.tfvars
+!*.tfvars.example
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# TLS artifacts
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Ansible generated inventory
+ansible/inventory/hosts.yml
+
+# Ansible collections and roles installed locally
+ansible/collections/
+ansible/roles/external/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
