@@ -1,7 +1,0 @@
----
-- name: Configure APM Server
-  hosts: apm_server
-  become: true
-  roles:
-    - role: common
-    - role: apm_server

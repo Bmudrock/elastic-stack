@@ -1,0 +1,186 @@
+---
+- name: Install Elasticsearch
+  ansible.builtin.apt:
+    name: "elasticsearch={{ elastic_version }}"
+    state: present
+    allow_downgrade: true
+
+- name: Grant elasticsearch group read access to TLS directory
+  ansible.builtin.file:
+    path: "{{ elastic_tls_dir }}"
+    group: elasticsearch
+    mode: '0750'
+
+- name: Grant elasticsearch group read access to TLS files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    group: elasticsearch
+    mode: '0640'
+  loop:
+    - "{{ elastic_tls_dir }}/key.pem"
+    - "{{ elastic_tls_dir }}/cert.pem"
+    - "{{ elastic_tls_dir }}/ca_chain.pem"
+
+# On Nitro instances EBS volumes are NVMe; the kernel device name is not stable,
+# but the by-id symlink encodes the EBS volume ID (dashes stripped).
+- name: Resolve data volume device path
+  ansible.builtin.set_fact:
+    es_data_device: "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_{{ data_volume_id | replace('-', '') }}"
+
+- name: Wait for the data volume to be attached
+  ansible.builtin.wait_for:
+    path: "{{ es_data_device }}"
+    timeout: 120
+
+- name: Check whether data volume is formatted
+  ansible.builtin.command:
+    cmd: "blkid {{ es_data_device }}"
+  register: blkid_result
+  failed_when: false
+  changed_when: false
+
+- name: Format data volume as XFS
+  ansible.builtin.command:
+    cmd: "mkfs.xfs {{ es_data_device }}"
+  when: blkid_result.rc != 0
+
+- name: Create Elasticsearch data directory
+  ansible.builtin.file:
+    path: "{{ elasticsearch_data_dir }}"
+    state: directory
+    owner: elasticsearch
+    group: elasticsearch
+    mode: '0750'
+
+- name: Mount data volume
+  ansible.posix.mount:
+    path: "{{ elasticsearch_data_dir }}"
+    src: "{{ es_data_device }}"
+    fstype: xfs
+    opts: defaults,noatime
+    state: mounted
+
+- name: Set data directory ownership after mount
+  ansible.builtin.file:
+    path: "{{ elasticsearch_data_dir }}"
+    owner: elasticsearch
+    group: elasticsearch
+    recurse: true
+
+- name: Configure Elasticsearch
+  ansible.builtin.template:
+    src: elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    owner: root
+    group: elasticsearch
+    mode: '0640'
+  notify: restart elasticsearch
+
+- name: Configure JVM heap
+  ansible.builtin.template:
+    src: jvm.options.j2
+    dest: /etc/elasticsearch/jvm.options.d/heap.options
+    owner: root
+    group: elasticsearch
+    mode: '0640'
+  notify: restart elasticsearch
+
+- name: Flush handlers so Elasticsearch restarts before health checks
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Elasticsearch
+  ansible.builtin.systemd:
+    name: elasticsearch
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Wait for Elasticsearch to be available
+  ansible.builtin.uri:
+    url: "https://localhost:{{ elasticsearch_http_port }}/_cluster/health"
+    method: GET
+    validate_certs: false
+    status_code: [200, 401]
+  register: es_health
+  until: es_health.status in [200, 401]
+  retries: 30
+  delay: 10
+
+# Generate credentials only once; on re-runs read them back from SSM so we never
+# rotate passwords out from under existing consumers.
+- name: Check whether the elastic password already exists in SSM
+  ansible.builtin.command:
+    cmd: >
+      aws ssm get-parameter
+      --name "{{ elastic_ssm_prefix }}/credentials/elastic_password"
+      --with-decryption
+      --region "{{ aws_region }}"
+      --query 'Parameter.Value'
+      --output text
+  register: elastic_password_check
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Bootstrap stack credentials (first run only)
+  when: elastic_password_check.rc != 0
+  block:
+    - name: Reset elastic superuser password
+      ansible.builtin.command:
+        cmd: /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -a -b -s
+      register: elastic_password_reset
+      no_log: true
+      changed_when: true
+
+    - name: Store elastic password in SSM
+      ansible.builtin.command:
+        cmd: >
+          aws ssm put-parameter
+          --name "{{ elastic_ssm_prefix }}/credentials/elastic_password"
+          --value "{{ elastic_password_reset.stdout | trim }}"
+          --type SecureString
+          --overwrite
+          --region "{{ aws_region }}"
+      no_log: true
+      changed_when: true
+
+    - name: Reset kibana_system user password
+      ansible.builtin.command:
+        cmd: /usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system -a -b -s
+      register: kibana_system_password_reset
+      no_log: true
+      changed_when: true
+
+    - name: Store kibana_system password in SSM
+      ansible.builtin.command:
+        cmd: >
+          aws ssm put-parameter
+          --name "{{ elastic_ssm_prefix }}/credentials/kibana_system_password"
+          --value "{{ kibana_system_password_reset.stdout | trim }}"
+          --type SecureString
+          --overwrite
+          --region "{{ aws_region }}"
+      no_log: true
+      changed_when: true
+
+- name: Set elastic password fact
+  ansible.builtin.set_fact:
+    elastic_password: "{{ (elastic_password_reset.stdout | trim) if (elastic_password_check.rc != 0) else (elastic_password_check.stdout | trim) }}"
+  no_log: true
+
+- name: Apply single-node index template (zero replicas)
+  ansible.builtin.uri:
+    url: "https://localhost:{{ elasticsearch_http_port }}/_index_template/single-node-defaults"
+    method: PUT
+    user: elastic
+    password: "{{ elastic_password }}"
+    validate_certs: false
+    body_format: json
+    body:
+      index_patterns: ["*"]
+      priority: 1
+      template:
+        settings:
+          number_of_replicas: 0
+    status_code: 200
+  no_log: true

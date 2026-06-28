@@ -1,0 +1,123 @@
+---
+- name: Install Elastic Agent
+  ansible.builtin.apt:
+    name: "elastic-agent={{ elastic_version }}"
+    state: present
+    allow_downgrade: true
+
+- name: Check whether Fleet Server is already running
+  ansible.builtin.command:
+    cmd: elastic-agent status
+  register: fleet_agent_status
+  failed_when: false
+  changed_when: false
+
+- name: Fetch elastic superuser password from SSM
+  ansible.builtin.command:
+    cmd: >
+      aws ssm get-parameter
+      --name "{{ elastic_ssm_prefix }}/credentials/elastic_password"
+      --with-decryption
+      --region "{{ aws_region }}"
+      --query 'Parameter.Value'
+      --output text
+  register: elastic_password_raw
+  changed_when: false
+  no_log: true
+
+# Fleet must be initialised before any Fleet API calls. This is idempotent —
+# Kibana returns 200 whether Fleet is being set up for the first time or was
+# already set up. It also triggers download of the pre-configured packages
+# (apm, elastic_agent, system) declared in kibana.yml.
+- name: Initialise Fleet via Kibana API
+  when: fleet_agent_status.rc != 0
+  ansible.builtin.uri:
+    url: "https://localhost:{{ kibana_port }}/api/fleet/setup"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password_raw.stdout | trim }}"
+    validate_certs: false
+    status_code: [200, 201]
+    headers:
+      kbn-xsrf: "true"
+  register: fleet_setup
+  no_log: true
+
+# Packages declared in kibana.yml are installed asynchronously after Fleet
+# setup. Poll until the APM package is available before creating policies.
+- name: Wait for APM package to be available in Fleet
+  when: fleet_agent_status.rc != 0
+  ansible.builtin.uri:
+    url: "https://localhost:{{ kibana_port }}/api/fleet/epm/packages/apm"
+    method: GET
+    user: elastic
+    password: "{{ elastic_password_raw.stdout | trim }}"
+    validate_certs: false
+    status_code: 200
+  register: apm_package_info
+  until: apm_package_info.status == 200
+  retries: 30
+  delay: 10
+  no_log: true
+
+- name: Create Fleet Server service token via Elasticsearch API
+  when: fleet_agent_status.rc != 0
+  ansible.builtin.uri:
+    url: "https://localhost:9200/_security/service/elastic/fleet-server/credential/token/fleet-server-token"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password_raw.stdout | trim }}"
+    validate_certs: false
+    status_code: [200, 201]
+  register: fleet_token_response
+  no_log: true
+
+- name: Store Fleet Server service token in SSM
+  when: fleet_agent_status.rc != 0
+  ansible.builtin.command:
+    cmd: >
+      aws ssm put-parameter
+      --name "{{ elastic_ssm_prefix }}/credentials/fleet_server_token"
+      --value "{{ fleet_token_response.json.token.value }}"
+      --type SecureString
+      --overwrite
+      --region "{{ aws_region }}"
+  no_log: true
+  changed_when: true
+
+# --fleet-server-es-ca: CA that signed the Elasticsearch TLS certificate,
+#   so Fleet Server can verify the ES connection.
+# --certificate-authorities: CA that signed the Fleet Server certificate,
+#   so enrolled agents can verify the Fleet Server connection.
+# --fleet-server-host: bind on all interfaces so agents can reach Fleet.
+# --url: advertised Fleet URL (the DNS name agents enroll against).
+- name: Bootstrap Fleet Server
+  when: fleet_agent_status.rc != 0
+  ansible.builtin.command:
+    cmd: >
+      elastic-agent install
+      --non-interactive
+      --fleet-server-es=https://localhost:9200
+      --fleet-server-service-token={{ fleet_token_response.json.token.value }}
+      --fleet-server-es-ca={{ elastic_tls_dir }}/ca_chain.pem
+      --certificate-authorities={{ elastic_tls_dir }}/ca_chain.pem
+      --fleet-server-cert={{ elastic_tls_dir }}/cert.pem
+      --fleet-server-cert-key={{ elastic_tls_dir }}/key.pem
+      --fleet-server-host=0.0.0.0
+      --fleet-server-port={{ fleet_server_port }}
+      --url=https://{{ fleet_fqdn }}:{{ fleet_server_port }}
+  no_log: true
+  changed_when: true
+  register: fleet_bootstrap
+  failed_when: fleet_bootstrap.rc != 0
+
+- name: Wait for Fleet Server to be healthy
+  ansible.builtin.uri:
+    url: "https://localhost:{{ fleet_server_port }}/api/status"
+    method: GET
+    validate_certs: false
+    status_code: 200
+  register: fleet_status
+  until: fleet_status.status == 200
+  retries: 20
+  delay: 15

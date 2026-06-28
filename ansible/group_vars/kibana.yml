@@ -1,4 +1,0 @@
----
-ssm_role_name: kibana
-kibana_port: 5601
-kibana_data_dir: /var/lib/kibana

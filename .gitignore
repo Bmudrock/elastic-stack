@@ -20,12 +20,15 @@ override.tf.json
 *.p12
 *.pfx
 
-# Ansible generated inventory
-ansible/inventory/hosts.yml
+# Ansible generated inventory (written by Terraform)
+**/inventory/hosts.yml
 
-# Ansible collections and roles installed locally
-ansible/collections/
-ansible/roles/external/
+# Ansible collections installed locally / built artifacts
+**/collections/
+*.tar.gz
+
+# Terraform backend config (may contain account-specific values)
+backend.hcl
 
 # Python
 __pycache__/

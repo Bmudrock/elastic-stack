@@ -1,0 +1,25 @@
+---
+namespace: mycompany
+name: elastic_stack
+version: 0.1.0
+readme: README.md
+authors:
+  - mycompany
+description: >-
+  Install and configure an all-in-one Elastic Stack node (Elasticsearch,
+  Kibana, optional Fleet Server and APM Server) over SSH.
+license:
+  - MIT
+tags:
+  - elasticsearch
+  - kibana
+  - fleet
+  - apm
+  - elastic
+dependencies:
+  amazon.aws: ">=8.0.0"
+  community.aws: ">=8.0.0"
+  ansible.posix: ">=1.5.0"
+build_ignore:
+  - "*.tar.gz"
+  - .github

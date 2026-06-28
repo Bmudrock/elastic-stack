@@ -1,0 +1,109 @@
+---
+# All-in-one: a single Elastic Agent runs on this host (the Fleet Server). APM
+# is enabled by adding the APM integration to that agent's policy, not by
+# enrolling a second agent.
+- name: Fetch elastic superuser password from SSM
+  ansible.builtin.command:
+    cmd: >
+      aws ssm get-parameter
+      --name "{{ elastic_ssm_prefix }}/credentials/elastic_password"
+      --with-decryption
+      --region "{{ aws_region }}"
+      --query 'Parameter.Value'
+      --output text
+  register: elastic_password_raw
+  changed_when: false
+  no_log: true
+
+- name: Wait for APM package to be available in Fleet
+  ansible.builtin.uri:
+    url: "https://localhost:{{ kibana_port }}/api/fleet/epm/packages/apm"
+    method: GET
+    user: elastic
+    password: "{{ elastic_password_raw.stdout | trim }}"
+    validate_certs: false
+    status_code: 200
+  register: apm_package_info
+  until: apm_package_info.status == 200
+  retries: 30
+  delay: 10
+  no_log: true
+
+- name: Get the local Fleet agent
+  ansible.builtin.uri:
+    url: "https://localhost:{{ kibana_port }}/api/fleet/agents"
+    method: GET
+    user: elastic
+    password: "{{ elastic_password_raw.stdout | trim }}"
+    validate_certs: false
+    status_code: 200
+  register: fleet_agents
+  no_log: true
+
+- name: Determine the agent policy to attach APM to
+  ansible.builtin.set_fact:
+    apm_agent_policy_id: "{{ (fleet_agents.json.items | default(fleet_agents.json.list))[0].policy_id }}"
+
+- name: List existing package policies
+  ansible.builtin.uri:
+    url: "https://localhost:{{ kibana_port }}/api/fleet/package_policies"
+    method: GET
+    user: elastic
+    password: "{{ elastic_password_raw.stdout | trim }}"
+    validate_certs: false
+    status_code: 200
+  register: existing_package_policies
+  no_log: true
+
+# vars format follows the Fleet 8.x package_policies API: each var is a key whose
+# value is an object with a "value" field.
+- name: Add APM integration to the Fleet agent policy
+  when: >
+    (existing_package_policies.json.items | default([]) |
+     selectattr('name', 'equalto', 'apm-1') | list | length) == 0
+  ansible.builtin.uri:
+    url: "https://localhost:{{ kibana_port }}/api/fleet/package_policies"
+    method: POST
+    user: elastic
+    password: "{{ elastic_password_raw.stdout | trim }}"
+    validate_certs: false
+    body_format: json
+    body:
+      name: "apm-1"
+      namespace: default
+      policy_id: "{{ apm_agent_policy_id }}"
+      package:
+        name: apm
+        version: "{{ apm_package_info.json.item.version }}"
+      inputs:
+        - type: apm
+          enabled: true
+          vars:
+            host:
+              value: "0.0.0.0:{{ apm_server_port }}"
+            url:
+              value: "https://{{ apm_fqdn }}:{{ apm_server_port }}"
+            tls_enabled:
+              value: true
+            tls_certificate:
+              value: "{{ elastic_tls_dir }}/cert.pem"
+            tls_key:
+              value: "{{ elastic_tls_dir }}/key.pem"
+            tls_certificate_authorities:
+              value:
+                - "{{ elastic_tls_dir }}/ca_chain.pem"
+    status_code: [200, 201]
+    headers:
+      kbn-xsrf: "true"
+  no_log: true
+
+- name: Wait for APM Server to accept connections
+  ansible.builtin.uri:
+    url: "https://localhost:{{ apm_server_port }}/"
+    method: GET
+    validate_certs: false
+    status_code: 200
+  register: apm_status
+  until: apm_status.status == 200
+  retries: 30
+  delay: 10

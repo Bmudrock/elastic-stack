@@ -1,8 +1,0 @@
----
-- name: Configure Kibana and Fleet Server
-  hosts: kibana
-  become: true
-  roles:
-    - role: common
-    - role: kibana
-    - role: fleet_server

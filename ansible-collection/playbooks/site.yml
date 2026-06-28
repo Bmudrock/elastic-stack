@@ -1,0 +1,23 @@
+---
+# All-in-one Elastic Stack configuration.
+# Elasticsearch and Kibana are always installed; Fleet Server and APM Server
+# are applied only when enabled via inventory vars (set by the Terraform module).
+- name: Configure Elastic Stack all-in-one node
+  hosts: all
+  become: true
+
+  pre_tasks:
+    - name: APM Server requires Fleet Server
+      ansible.builtin.assert:
+        that:
+          - not (enable_apm | bool) or (enable_fleet | bool)
+        fail_msg: "enable_apm=true requires enable_fleet=true"
+
+  roles:
+    - role: mycompany.elastic_stack.common
+    - role: mycompany.elastic_stack.elasticsearch
+    - role: mycompany.elastic_stack.kibana
+    - role: mycompany.elastic_stack.fleet_server
+      when: enable_fleet | bool
+    - role: mycompany.elastic_stack.apm_server
+      when: enable_apm | bool

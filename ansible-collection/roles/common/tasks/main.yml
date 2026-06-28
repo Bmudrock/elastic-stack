@@ -1,0 +1,94 @@
+---
+- name: Install prerequisites
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - xfsprogs
+      - awscli
+    state: present
+    update_cache: true
+
+- name: Add Elastic GPG key
+  ansible.builtin.get_url:
+    url: "{{ elastic_apt_key_url }}"
+    dest: /usr/share/keyrings/elastic.gpg
+    mode: '0644'
+
+- name: Add Elastic APT repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/elastic.gpg] https://artifacts.elastic.co/packages/{{ elastic_apt_channel }}/apt stable main"
+    state: present
+    filename: "elastic-{{ elastic_apt_channel }}"
+    update_cache: true
+
+- name: Create TLS directory
+  ansible.builtin.file:
+    path: "{{ elastic_tls_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Fetch TLS private key from SSM
+  ansible.builtin.command:
+    cmd: >
+      aws ssm get-parameter
+      --name "{{ elastic_ssm_prefix }}/tls/key"
+      --with-decryption
+      --region "{{ aws_region }}"
+      --query 'Parameter.Value'
+      --output text
+  register: tls_key_raw
+  changed_when: false
+  no_log: true
+
+- name: Write TLS private key
+  ansible.builtin.copy:
+    content: "{{ tls_key_raw.stdout }}"
+    dest: "{{ elastic_tls_dir }}/key.pem"
+    owner: root
+    group: root
+    mode: '0640'
+  no_log: true
+
+- name: Fetch TLS certificate from SSM
+  ansible.builtin.command:
+    cmd: >
+      aws ssm get-parameter
+      --name "{{ elastic_ssm_prefix }}/tls/cert"
+      --region "{{ aws_region }}"
+      --query 'Parameter.Value'
+      --output text
+  register: tls_cert_raw
+  changed_when: false
+
+- name: Write TLS certificate
+  ansible.builtin.copy:
+    content: "{{ tls_cert_raw.stdout }}"
+    dest: "{{ elastic_tls_dir }}/cert.pem"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Fetch CA chain from SSM
+  ansible.builtin.command:
+    cmd: >
+      aws ssm get-parameter
+      --name "{{ elastic_ssm_prefix }}/common/tls/ca_chain"
+      --region "{{ aws_region }}"
+      --query 'Parameter.Value'
+      --output text
+  register: tls_ca_raw
+  changed_when: false
+
+- name: Write CA chain
+  ansible.builtin.copy:
+    content: "{{ tls_ca_raw.stdout }}"
+    dest: "{{ elastic_tls_dir }}/ca_chain.pem"
+    owner: root
+    group: root
+    mode: '0644'

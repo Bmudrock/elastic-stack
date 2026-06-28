@@ -1,0 +1,25 @@
+# Copy to terraform.tfvars and fill in real values.
+# terraform.tfvars is git-ignored and must never be committed.
+
+name                      = "obs"
+aws_region                = "eu-west-2"
+contract_account_role_arn = "arn:aws:iam::CONTRACT_ACCOUNT_ID:role/terraform-deploy"
+
+vpc_id          = "vpc-xxxxxxxxxxxxxxxxx"
+subnet_id       = "subnet-xxxxxxxxxxxxxxxxx"
+internal_cidr   = "10.0.0.0/16"
+management_cidr = "10.1.2.0/24" # CI runner egress range
+
+domain_name            = "contract1.mycompany.com"
+private_ca_arn         = "arn:aws:acm-pca:eu-west-2:CENTRAL_ACCOUNT_ID:certificate-authority/XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+central_hosted_zone_id = "ZXXXXXXXXXXXXXXXXXXXXX"
+key_name               = "elastic-stack"
+
+# Optional components (Elasticsearch + Kibana are always on)
+enable_fleet = true
+enable_apm   = true
+
+tags = {
+  Environment = "production"
+  Project     = "elastic-stack"
+}

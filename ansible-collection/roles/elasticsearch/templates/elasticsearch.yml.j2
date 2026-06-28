@@ -1,0 +1,28 @@
+cluster.name: {{ elasticsearch_cluster_name }}
+node.name: {{ deployment_name }}
+
+path.data: {{ elasticsearch_data_dir }}
+path.logs: {{ elasticsearch_log_dir }}
+
+network.host: 0.0.0.0
+http.port: {{ elasticsearch_http_port }}
+transport.port: {{ elasticsearch_transport_port }}
+
+discovery.type: single-node
+
+xpack.security.enabled: true
+
+xpack.security.http.ssl:
+  enabled: true
+  certificate: {{ elastic_tls_dir }}/cert.pem
+  key: {{ elastic_tls_dir }}/key.pem
+  certificate_authorities:
+    - {{ elastic_tls_dir }}/ca_chain.pem
+
+xpack.security.transport.ssl:
+  enabled: true
+  verification_mode: certificate
+  certificate: {{ elastic_tls_dir }}/cert.pem
+  key: {{ elastic_tls_dir }}/key.pem
+  certificate_authorities:
+    - {{ elastic_tls_dir }}/ca_chain.pem

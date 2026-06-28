@@ -1,0 +1,9 @@
+---
+collections:
+  # Published blueprint collection. Pin to a release tag.
+  - name: https://gitlab.example.com/blueprints/ansible-collections/elastic-stack.git
+    type: git
+    version: v0.1.0
+  # For local development against this repo, install from the path instead:
+  # - name: ../../../ansible-collection
+  #   type: dir
